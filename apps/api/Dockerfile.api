@@ -52,6 +52,8 @@ RUN mkdir -p /code/plane/logs
 RUN chmod +x ./bin/*
 RUN chmod -R 777 /code
 
+USER 1000
+
 # Expose container port and run entry point script
 EXPOSE 8000
 
