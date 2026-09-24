@@ -7,6 +7,8 @@
 import { useCallback, useMemo } from "react";
 import { AtSign, Briefcase } from "lucide-react";
 // plane imports
+import { NONE_FILTER_VALUE } from "@plane/constants";
+import { useTranslation } from "@plane/i18n";
 import { Logo } from "@plane/propel/emoji-icon-picker";
 import {
   CalendarLayoutIcon,
@@ -48,6 +50,7 @@ import {
   getStartDateFilterConfig,
   getStateFilterConfig,
   getStateGroupFilterConfig,
+  getStateNameFilterConfig,
   getSubscriberFilterConfig,
   getTargetDateFilterConfig,
   getUpdatedAtFilterConfig,
@@ -91,6 +94,7 @@ export type TWorkItemFiltersConfig = {
 export const useWorkItemFiltersConfig = (props: TUseWorkItemFiltersConfigProps): TWorkItemFiltersConfig => {
   const { allowedFilters, cycleIds, labelIds, memberIds, moduleIds, projectId, projectIds, stateIds, workspaceSlug } =
     props;
+  const { t } = useTranslation();
   // store hooks
   const { loader: projectLoader, getProjectById } = useProject();
   const { getCycleById } = useCycle();
@@ -131,10 +135,7 @@ export const useWorkItemFiltersConfig = (props: TUseWorkItemFiltersConfigProps):
     [moduleIds, getModuleById]
   );
   const projects = useMemo(
-    () =>
-      projectIds
-        ? (projectIds.map((projectId) => getProjectById(projectId)).filter((project) => project) as IProject[])
-        : [],
+    () => (projectIds ? (projectIds.map((id) => getProjectById(id)).filter((item) => item) as IProject[]) : []),
     [projectIds, getProjectById]
   );
   const areAllConfigsInitialized = useMemo(() => isLoaderReady(projectLoader), [projectLoader]);
@@ -164,6 +165,19 @@ export const useWorkItemFiltersConfig = (props: TUseWorkItemFiltersConfigProps):
     () =>
       getStateFilterConfig<TWorkItemFilterProperty>("state_id")({
         isEnabled: isFilterEnabled("state_id") && workItemStates !== undefined,
+        filterIcon: StatePropertyIcon,
+        getOptionIcon: (state) => <StateGroupIcon stateGroup={state.group} color={state.color} />,
+        states: workItemStates ?? [],
+        ...operatorConfigs,
+      }),
+    [isFilterEnabled, workItemStates, operatorConfigs]
+  );
+
+  // state name filter config (multi-project, e.g. workspace views)
+  const stateNameFilterConfig = useMemo(
+    () =>
+      getStateNameFilterConfig<TWorkItemFilterProperty>("state_name")({
+        isEnabled: isFilterEnabled("state_name") && workItemStates !== undefined,
         filterIcon: StatePropertyIcon,
         getOptionIcon: (state) => <StateGroupIcon stateGroup={state.group} color={state.color} />,
         states: workItemStates ?? [],
@@ -220,17 +234,21 @@ export const useWorkItemFiltersConfig = (props: TUseWorkItemFiltersConfigProps):
         isEnabled: isFilterEnabled("assignee_id") && members !== undefined,
         filterIcon: MembersPropertyIcon,
         members: members ?? [],
-        getOptionIcon: (memberDetails) => (
-          <Avatar
-            name={memberDetails.display_name}
-            src={getFileURL(memberDetails.avatar_url)}
-            showTooltip={false}
-            size="sm"
-          />
-        ),
+        unassignedLabel: t("no_assignee"),
+        getOptionIcon: (memberDetails) =>
+          memberDetails.id === NONE_FILTER_VALUE ? (
+            <Avatar size="sm" />
+          ) : (
+            <Avatar
+              name={memberDetails.display_name}
+              src={getFileURL(memberDetails.avatar_url)}
+              showTooltip={false}
+              size="sm"
+            />
+          ),
         ...operatorConfigs,
       }),
-    [isFilterEnabled, members, operatorConfigs]
+    [isFilterEnabled, members, operatorConfigs, t]
   );
 
   // mention filter config
@@ -356,7 +374,7 @@ export const useWorkItemFiltersConfig = (props: TUseWorkItemFiltersConfigProps):
         isEnabled: isFilterEnabled("project_id") && projects !== undefined,
         filterIcon: Briefcase,
         projects: projects,
-        getOptionIcon: (project) => <Logo logo={project.logo_props} size={12} />,
+        getOptionIcon: (item) => <Logo logo={item.logo_props} size={12} />,
         ...operatorConfigs,
       }),
     [isFilterEnabled, projects, operatorConfigs]
@@ -366,6 +384,7 @@ export const useWorkItemFiltersConfig = (props: TUseWorkItemFiltersConfigProps):
     areAllConfigsInitialized,
     configs: [
       stateFilterConfig,
+      stateNameFilterConfig,
       stateGroupFilterConfig,
       assigneeFilterConfig,
       priorityFilterConfig,
@@ -385,6 +404,7 @@ export const useWorkItemFiltersConfig = (props: TUseWorkItemFiltersConfigProps):
       project_id: projectFilterConfig,
       state_group: stateGroupFilterConfig,
       state_id: stateFilterConfig,
+      state_name: stateNameFilterConfig,
       label_id: labelFilterConfig,
       cycle_id: cycleFilterConfig,
       module_id: moduleFilterConfig,

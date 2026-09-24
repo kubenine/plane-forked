@@ -1,3 +1,5 @@
+name: plane-shafi
+
 services:
   plane-redis:
     image: valkey/valkey:7.2.11-alpine
@@ -24,7 +26,7 @@ services:
       RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_VHOST}
 
   plane-minio:
-    image: minio/minio
+    image: quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z
     restart: unless-stopped
     networks:
       - dev_env
@@ -45,8 +47,8 @@ services:
       MINIO_ROOT_USER: ${AWS_ACCESS_KEY_ID}
       MINIO_ROOT_PASSWORD: ${AWS_SECRET_ACCESS_KEY}
     ports:
-      - "9000:9000"
-      - "9090:9090"
+      - "9001:9000"
+      - "9091:9090"
 
   plane-db:
     image: postgres:15.7-alpine
@@ -82,7 +84,7 @@ services:
       - plane-redis
       - plane-mq
     ports:
-      - "8000:8000"
+      - "8001:8000"
 
   worker:
     build:
@@ -149,3 +151,6 @@ volumes:
 networks:
   dev_env:
     driver: bridge
+    ipam:
+      config:
+        - subnet: 192.168.240.0/20

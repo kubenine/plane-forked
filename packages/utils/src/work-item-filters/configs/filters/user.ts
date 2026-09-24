@@ -5,7 +5,8 @@
  */
 
 // plane imports
-import type { TFilterProperty } from "@plane/types";
+import { NONE_FILTER_VALUE } from "@plane/constants";
+import type { IUserLite, TFilterProperty } from "@plane/types";
 import { EQUALITY_OPERATOR, COLLECTION_OPERATOR } from "@plane/types";
 // local imports
 import type { TCreateFilterConfig, TCreateUserFilterParams } from "../../../rich-filters";
@@ -16,7 +17,19 @@ import { createFilterConfig, createOperatorConfigEntry, getMemberMultiSelectConf
 /**
  * Assignee filter specific params
  */
-export type TCreateAssigneeFilterParams = TCreateUserFilterParams;
+export type TCreateAssigneeFilterParams = TCreateUserFilterParams & {
+  /** Label for the synthetic empty-assignees option. Defaults to "No assignee". */
+  unassignedLabel?: string;
+};
+
+const buildUnassignedMember = (label: string): IUserLite => ({
+  id: NONE_FILTER_VALUE,
+  display_name: label,
+  avatar_url: "",
+  first_name: "",
+  last_name: "",
+  is_bot: false,
+});
 
 /**
  * Get the assignee filter config
@@ -26,18 +39,26 @@ export type TCreateAssigneeFilterParams = TCreateUserFilterParams;
  */
 export const getAssigneeFilterConfig =
   <P extends TFilterProperty>(key: P): TCreateFilterConfig<P, TCreateAssigneeFilterParams> =>
-  (params: TCreateAssigneeFilterParams) =>
-    createFilterConfig<P>({
+  (params: TCreateAssigneeFilterParams) => {
+    const { unassignedLabel = "No assignee", ...restParams } = params;
+    const membersWithUnassigned = [
+      buildUnassignedMember(unassignedLabel),
+      ...restParams.members.filter((member) => member.id !== NONE_FILTER_VALUE),
+    ];
+    const assigneeParams = { ...restParams, members: membersWithUnassigned };
+
+    return createFilterConfig<P>({
       id: key,
       label: "Assignees",
-      ...params,
-      icon: params.filterIcon,
+      ...assigneeParams,
+      icon: assigneeParams.filterIcon,
       supportedOperatorConfigsMap: new Map([
-        createOperatorConfigEntry(COLLECTION_OPERATOR.IN, params, (updatedParams) =>
+        createOperatorConfigEntry(COLLECTION_OPERATOR.IN, assigneeParams, (updatedParams) =>
           getMemberMultiSelectConfig(updatedParams, EQUALITY_OPERATOR.EXACT)
         ),
       ]),
     });
+  };
 
 // ------------ Mention filter ------------
 

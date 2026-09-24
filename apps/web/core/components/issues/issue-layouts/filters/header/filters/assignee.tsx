@@ -7,6 +7,9 @@
 import { useMemo, useState } from "react";
 import { sortBy } from "lodash-es";
 import { observer } from "mobx-react";
+// plane imports
+import { NONE_FILTER_VALUE } from "@plane/constants";
+import { useTranslation } from "@plane/i18n";
 // plane ui
 import { Avatar, Loader } from "@plane/ui";
 // components
@@ -32,21 +35,27 @@ export const FilterAssignees = observer(function FilterAssignees(props: Props) {
   // store hooks
   const { getUserDetails } = useMember();
   const { data: currentUser } = useUser();
+  const { t } = useTranslation();
+  const unassignedLabel = t("no_assignee");
 
   const appliedFiltersCount = appliedFilters?.length ?? 0;
 
   const sortedOptions = useMemo(() => {
+    const query = searchQuery.toLowerCase();
+    const showUnassigned = unassignedLabel.toLowerCase().includes(query);
     const filteredOptions = (memberIds || []).filter((memberId) =>
-      getUserDetails(memberId)?.display_name.toLowerCase().includes(searchQuery.toLowerCase())
+      getUserDetails(memberId)?.display_name.toLowerCase().includes(query)
     );
 
-    return sortBy(filteredOptions, [
+    const sortedMembers = sortBy(filteredOptions, [
       (memberId) => !(appliedFilters ?? []).includes(memberId),
       (memberId) => memberId !== currentUser?.id,
       (memberId) => getUserDetails(memberId)?.display_name.toLowerCase(),
     ]);
+
+    return showUnassigned ? [NONE_FILTER_VALUE, ...sortedMembers] : sortedMembers;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchQuery]);
+  }, [searchQuery, unassignedLabel, memberIds]);
 
   const handleViewToggle = () => {
     if (!sortedOptions) return;
@@ -68,13 +77,25 @@ export const FilterAssignees = observer(function FilterAssignees(props: Props) {
             sortedOptions.length > 0 ? (
               <>
                 {sortedOptions.slice(0, itemsToRender).map((memberId) => {
+                  if (memberId === NONE_FILTER_VALUE) {
+                    return (
+                      <FilterOption
+                        key="assignees-none"
+                        isChecked={appliedFilters?.includes(NONE_FILTER_VALUE) ?? false}
+                        onClick={() => handleUpdate(NONE_FILTER_VALUE)}
+                        icon={<Avatar size="md" />}
+                        title={unassignedLabel}
+                      />
+                    );
+                  }
+
                   const member = getUserDetails(memberId);
 
                   if (!member) return null;
                   return (
                     <FilterOption
                       key={`assignees-${member.id}`}
-                      isChecked={appliedFilters?.includes(member.id) ? true : false}
+                      isChecked={appliedFilters?.includes(member.id) ?? false}
                       onClick={() => handleUpdate(member.id)}
                       icon={
                         <Avatar

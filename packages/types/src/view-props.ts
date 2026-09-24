@@ -104,6 +104,7 @@ export const WORK_ITEM_FILTER_PROPERTY_KEYS = [
   "subscriber_id",
   "label_id",
   "state_id",
+  "state_name",
   "cycle_id",
   "module_id",
   "project_id",

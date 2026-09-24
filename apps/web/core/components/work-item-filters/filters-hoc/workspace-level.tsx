@@ -20,6 +20,7 @@ import { useGlobalView } from "@/hooks/store/use-global-view";
 import { useLabel } from "@/hooks/store/use-label";
 import { useMember } from "@/hooks/store/use-member";
 import { useProject } from "@/hooks/store/use-project";
+import { useProjectState } from "@/hooks/store/use-project-state";
 import { useUser, useUserPermissions } from "@/hooks/store/user";
 // local imports
 import { WorkItemFiltersHOC } from "./base";
@@ -46,7 +47,13 @@ export const WorkspaceLevelWorkItemFiltersHOC = observer(function WorkspaceLevel
     workspace: { getWorkspaceMemberIds },
   } = useMember();
   const { getWorkspaceLabelIds } = useLabel();
+  const { workspaceStates, getProjectStateIds } = useProjectState();
   // derived values
+  // states of joined projects, ordered by project; undefined until workspace states are fetched
+  const stateIds = useMemo(
+    () => (workspaceStates ? joinedProjectIds.flatMap((projectId) => getProjectStateIds(projectId) ?? []) : undefined),
+    [workspaceStates, joinedProjectIds, getProjectStateIds]
+  );
   const hasWorkspaceMemberLevelPermissions = allowPermissions(
     [EUserProjectRoles.ADMIN, EUserProjectRoles.MEMBER],
     EUserPermissionsLevel.WORKSPACE,
@@ -145,6 +152,7 @@ export const WorkspaceLevelWorkItemFiltersHOC = observer(function WorkspaceLevel
             title: "Success!",
             message: "Your view has been updated successfully.",
           });
+          return null;
         })
         .catch(() => {
           setToast({
@@ -191,6 +199,7 @@ export const WorkspaceLevelWorkItemFiltersHOC = observer(function WorkspaceLevel
         memberIds={getWorkspaceMemberIds(workspaceSlug)}
         labelIds={getWorkspaceLabelIds(workspaceSlug)}
         projectIds={joinedProjectIds}
+        stateIds={stateIds}
         saveViewOptions={saveViewOptions}
         updateViewOptions={updateViewOptions}
       >

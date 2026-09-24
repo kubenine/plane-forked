@@ -183,6 +183,10 @@ class LegacyToRichFiltersConverter:
 
     def _validate_value(self, rich_field_name: str, value: Any) -> bool:
         """Validate a single value based on field type"""
+        # Legacy assignee filters use "None" for unassigned. Keep it when migrating
+        # to rich filters; every other assignee value must still be a UUID.
+        if rich_field_name == "assignee_id" and str(value) == "None":
+            return True
         if rich_field_name in self.UUID_FIELDS:
             return self._validate_uuid(value)
         elif rich_field_name in self.VALID_CHOICES:

@@ -5,7 +5,13 @@
  */
 
 import { uniq, orderBy, isEmpty, indexOf, groupBy, cloneDeep, set } from "lodash-es";
-import { ALL_ISSUES, EIssueFilterType, FILTER_TO_ISSUE_MAP, ISSUE_PRIORITIES } from "@plane/constants";
+import {
+  ALL_ISSUES,
+  EIssueFilterType,
+  FILTER_TO_ISSUE_MAP,
+  ISSUE_PRIORITIES,
+  NONE_FILTER_VALUE,
+} from "@plane/constants";
 import type {
   IIssueDisplayFilterOptions,
   IIssueDisplayProperties,
@@ -261,6 +267,16 @@ export const getFilteredWorkItems = (workItems: TIssue[], filters: IIssueFilterO
       const issueKey = FILTER_TO_ISSUE_MAP[filterKey as keyof IIssueFilterOptions];
       if (!issueKey) return true; // Skip if no mapping exists
       const issueValue = workItem[issueKey];
+      // "None" is the unassigned sentinel: match an empty assignees list, OR any real member id.
+      if (filterKey === "assignees" && Array.isArray(issueValue)) {
+        const values = filterValues as string[];
+        const assigneeIds = issueValue as string[];
+        const matchesUnassigned = values.includes(NONE_FILTER_VALUE) && assigneeIds.length === 0;
+        const matchesMember = values.some(
+          (filterValue) => filterValue !== NONE_FILTER_VALUE && assigneeIds.includes(filterValue)
+        );
+        return matchesUnassigned || matchesMember;
+      }
       // Handle array-based properties vs single value properties
       if (Array.isArray(issueValue)) {
         return filterValues!.some((filterValue: any) => issueValue.includes(filterValue));
@@ -318,8 +334,8 @@ export const getGroupedWorkItemIds = (
   }
 
   // Get the default key for the group by key
-  const getDefaultGroupKey = (groupByKey: TIssueGroupByOptions) => {
-    switch (groupByKey) {
+  const getDefaultGroupKey = (key: TIssueGroupByOptions) => {
+    switch (key) {
       case "state_detail.group":
         return "state__group";
       case null:
@@ -336,7 +352,7 @@ export const getGroupedWorkItemIds = (
     if (Array.isArray(value)) {
       if (value.length === 0) return "None";
       // Sort & join to build deterministic set-like key
-      return value.slice().sort().join(",");
+      return value.toSorted().join(",");
     }
     return value ?? "None";
   });

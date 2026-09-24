@@ -119,3 +119,75 @@ export const getStateFilterConfig =
         ),
       ]),
     });
+
+// ------------ State name filter ------------
+
+/**
+ * State name filter specific params.
+ * Used where states from multiple projects are listed (e.g. workspace views): states sharing a name
+ * are collapsed into a single option, which matches that state in every project.
+ */
+export type TCreateStateNameFilterParams = TCreateFilterConfigParams &
+  IFilterIconConfig<IState> & {
+    states: IState[];
+  };
+
+/**
+ * Helper to get unique states by name, keeping the first occurrence (used for the option icon)
+ * @param states - The states to dedupe
+ * @returns The states with unique names
+ */
+const getUniqueStatesByName = (states: IState[]): IState[] => {
+  const statesByName = new Map<string, IState>();
+  states.forEach((state) => {
+    if (!statesByName.has(state.name)) statesByName.set(state.name, state);
+  });
+  return Array.from(statesByName.values());
+};
+
+/**
+ * Helper to get the state name multi select config
+ * @param params - The filter params
+ * @returns The state name multi select config
+ */
+export const getStateNameMultiSelectConfig = (
+  params: TCreateStateNameFilterParams,
+  singleValueOperator: TSupportedOperators
+) =>
+  getMultiSelectConfig<IState, string, IState>(
+    {
+      items: getUniqueStatesByName(params.states),
+      getId: (state) => state.name,
+      getLabel: (state) => state.name,
+      getValue: (state) => state.name,
+      getIconData: (state) => state,
+    },
+    {
+      singleValueOperator,
+      ...params,
+    },
+    {
+      ...params,
+    }
+  );
+
+/**
+ * Get the state name filter config
+ * @template K - The filter key
+ * @param key - The filter key to use
+ * @returns A function that takes parameters and returns the state name filter config
+ */
+export const getStateNameFilterConfig =
+  <P extends TFilterProperty>(key: P): TCreateFilterConfig<P, TCreateStateNameFilterParams> =>
+  (params: TCreateStateNameFilterParams) =>
+    createFilterConfig<P>({
+      id: key,
+      label: "State",
+      ...params,
+      icon: params.filterIcon,
+      supportedOperatorConfigsMap: new Map([
+        createOperatorConfigEntry(COLLECTION_OPERATOR.IN, params, (updatedParams) =>
+          getStateNameMultiSelectConfig(updatedParams, EQUALITY_OPERATOR.EXACT)
+        ),
+      ]),
+    });

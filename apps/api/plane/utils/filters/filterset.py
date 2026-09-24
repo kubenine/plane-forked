@@ -3,12 +3,17 @@
 # See the LICENSE file for details.
 
 import copy
+import uuid
 
 from django.db import models
-from django.db.models import Q
+from django.db.models import Exists, OuterRef, Q
 from django_filters import FilterSet, filters
 
-from plane.db.models import Issue
+from plane.db.models import Issue, IssueAssignee
+
+# Synthetic assignee-filter value for work items with no assignees.
+# Matches the legacy GET sentinel and the group-by "None" column.
+NONE_ASSIGNEE_FILTER_VALUE = "None"
 
 
 class UUIDInFilter(filters.BaseInFilter, filters.UUIDFilter):
@@ -136,7 +141,8 @@ class IssueFilterSet(BaseFilterSet):
     # Custom filter methods to handle soft delete exclusion for relations
 
     assignee_id = filters.UUIDFilter(method="filter_assignee_id")
-    assignee_id__in = UUIDInFilter(method="filter_assignee_id_in", lookup_expr="in")
+    # Char, not UUID: the "None" sentinel means unassigned and must survive validation.
+    assignee_id__in = CharInFilter(method="filter_assignee_id_in", lookup_expr="in")
 
     cycle_id = filters.UUIDFilter(method="filter_cycle_id")
     cycle_id__in = UUIDInFilter(method="filter_cycle_id_in", lookup_expr="in")
@@ -161,6 +167,10 @@ class IssueFilterSet(BaseFilterSet):
 
     state_id = filters.UUIDFilter(field_name="state_id")
     state_id__in = UUIDInFilter(field_name="state_id", lookup_expr="in")
+
+    # Match states by name across projects (workspace-level views list each state name once)
+    state_name = filters.CharFilter(field_name="state__name")
+    state_name__in = CharInFilter(field_name="state__name", lookup_expr="in")
 
     project_id = filters.UUIDFilter(field_name="project_id")
     project_id__in = UUIDInFilter(field_name="project_id", lookup_expr="in")
@@ -220,11 +230,46 @@ class IssueFilterSet(BaseFilterSet):
         )
 
     def filter_assignee_id_in(self, queryset, name, value):
-        """Filter by assignee IDs (in), excluding soft deleted users"""
-        return Q(
-            issue_assignee__assignee_id__in=value,
-            issue_assignee__deleted_at__isnull=True,
-        )
+        """Filter by assignee IDs, including the "None" unassigned sentinel.
+
+        "None" matches issues with no non-deleted assignee rows. Member IDs use the
+        existing join. Both together are OR, matching multi-select semantics.
+        Other non-UUID values are ignored. If nothing valid remains, match no rows.
+        """
+        raw_values = value if isinstance(value, (list, tuple)) else [value]
+        include_unassigned = False
+        assignee_ids = []
+        for item in raw_values:
+            if item is None:
+                continue
+            text = str(item)
+            if text == NONE_ASSIGNEE_FILTER_VALUE:
+                include_unassigned = True
+                continue
+            try:
+                assignee_ids.append(uuid.UUID(text))
+            except (ValueError, TypeError):
+                continue
+
+        if not include_unassigned and not assignee_ids:
+            return Q(pk__in=[])
+
+        q = Q()
+        if include_unassigned:
+            active_assignees = IssueAssignee.objects.filter(
+                issue_id=OuterRef("pk"),
+                deleted_at__isnull=True,
+            )
+            # Wrap Exists in Q. A bare ~Exists is a NegatedExpression, and Q() | ~Exists
+            # collapses to that expression, which build_combined_q rejects.
+            unassigned_ids = Issue.objects.filter(~Exists(active_assignees)).values("pk")
+            q |= Q(pk__in=unassigned_ids)
+        if assignee_ids:
+            q |= Q(
+                issue_assignee__assignee_id__in=assignee_ids,
+                issue_assignee__deleted_at__isnull=True,
+            )
+        return q
 
     def filter_cycle_id(self, queryset, name, value):
         """Filter by cycle ID, excluding soft deleted cycles"""
