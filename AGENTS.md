@@ -33,4 +33,8 @@ Prereq (once): `./setup.sh` — generates `apps/api/.env` from `.env.example`.
 - Subset: `docker compose -f docker-compose-test.yml run --rm api-tests pytest -m unit`
 - Teardown: `docker compose -f docker-compose-test.yml down -v`
 
+## Security Guidelines
+
+- Do not add secrets, api key or any other sensitive credentials or information and don't push them
+
 See `apps/api/tests/RUNNING_TESTS.md` for the full walkthrough and troubleshooting; see `apps/api/tests/TESTING_GUIDE.md` for test conventions and fixtures.

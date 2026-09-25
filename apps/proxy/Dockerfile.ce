@@ -17,3 +17,11 @@ RUN apk update && apk upgrade --no-cache && apk add --no-cache nss-tools bash cu
 COPY --from=caddy-builder /usr/bin/caddy /usr/bin/caddy
 
 COPY Caddyfile.ce /etc/caddy/Caddyfile
+
+ENV XDG_DATA_HOME=/tmp/caddy/data
+ENV XDG_CONFIG_HOME=/tmp/caddy/config
+
+RUN mkdir -p /tmp/caddy/data /tmp/caddy/config && \
+    chown -R 1000:1000 /tmp/caddy /etc/caddy
+
+USER 1000

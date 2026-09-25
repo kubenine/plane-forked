@@ -71,6 +71,9 @@ RUN find /app/node_modules \( -name 'esbuild' -o -name 'tsgolint' \) -type f -de
 
 ENV TURBO_TELEMETRY_DISABLED=1
 
+RUN chown -R node:node /app
+USER node
+
 EXPOSE 3000
 
 CMD ["node", "apps/live"]
