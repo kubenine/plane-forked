@@ -69,7 +69,12 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Build and push images
+      - name: Install Trivy
+        uses: aquasecurity/setup-trivy@v0.3.1
+        with:
+          version: v0.74.0
+
+      - name: Build, scan and push images
         run: |
           set -euo pipefail
           images=(
@@ -83,7 +88,12 @@ jobs:
             IFS='|' read -r name context file <<<"$spec"
             tag="${STAGING_IMAGE_NAMESPACE}/plane-${name}:${IMAGE_TAG}"
             echo "Building ${tag}"
-            docker buildx build --push --platform "$BUILD_PLATFORM" --file "$file" --tag "$tag" "$context"
+            docker buildx build --load --platform "$BUILD_PLATFORM" --file "$file" --tag "$tag" "$context"
+            echo "Scanning ${tag}"
+            trivy image --severity HIGH --ignore-unfixed --exit-code 0 "$tag"
+            trivy image --severity CRITICAL --ignore-unfixed --exit-code 1 "$tag"
+            echo "Pushing ${tag}"
+            docker push "$tag"
           done
 
       - name: Install Helm
