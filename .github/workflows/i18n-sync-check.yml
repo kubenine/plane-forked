@@ -5,6 +5,7 @@ on:
   pull_request:
     branches:
       - "preview"
+      - "staging"
     types:
       - "opened"
       - "synchronize"
@@ -16,6 +17,7 @@ on:
   push:
     branches:
       - "preview"
+      - "staging"
     paths:
       - "packages/i18n/**"
 
