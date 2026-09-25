@@ -1,10 +1,12 @@
 name: Staging deploy
 
-# Manual deploy of the selected ref onto the Helm release already running in the cluster.
+# Deploys every push to staging onto the Helm release already running in the cluster.
 # Does not run on pull requests, so fork PRs cannot read the kubeconfig or registry secrets.
 
 on:
-  workflow_dispatch:
+  push:
+    branches:
+      - staging
 
 concurrency:
   group: staging-deploy
