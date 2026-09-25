@@ -96,9 +96,12 @@ RUN find /app/node_modules \( -name 'esbuild' -o -name 'tsgolint' \) -type f -de
 
 WORKDIR /app/apps/space
 
+RUN apk add --no-cache curl
+RUN chown -R node:node /app
+USER node
+
 EXPOSE 3000
 
-RUN apk add --no-cache curl
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD curl -fsS http://127.0.0.1:3000/spaces/ >/dev/null || exit 1
 
