@@ -1,13 +1,11 @@
 #!/usr/bin/env bash
 # Builds the custom Plane component images from this repo's Dockerfiles
-# (same build contexts as build-images.sh) and pushes them to a Docker Hub
-# namespace. All tags share a single IMAGE_TAG.
+# and pushes them to a Docker Hub namespace. All images share a single IMAGE_TAG.
 #
 # Usage:
 #   DOCKERHUB_NAMESPACE=<namespace> [IMAGE_TAG=<tag>] ./build-and-push-dockerhub.sh
 #
-# `proxy` is not built here; it is only needed for the docker-compose
-# deployment shape (docker-compose-ecr.yml).
+# `proxy` is not built here; the Helm chart routes through Ingress instead.
 set -euo pipefail
 
 DOCKERHUB_NAMESPACE="${DOCKERHUB_NAMESPACE:?DOCKERHUB_NAMESPACE must be set}"
