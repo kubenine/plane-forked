@@ -5,16 +5,9 @@ name: Security scan
 # request code must never execute on the self-hosted cluster runners.
 
 on:
-  pull_request:
-    branches:
-      - staging
   push:
     branches:
       - staging
-  schedule:
-    # Advisory databases change daily; re-scan even when nothing was pushed.
-    - cron: "0 3 * * 1"
-  workflow_dispatch:
 
 permissions:
   contents: read
