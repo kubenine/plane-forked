@@ -1,0 +1,87 @@
+
+
+planeVersion: v1
+
+postgres:
+  local_setup: false   
+redis:
+  local_setup: false   
+
+rabbitmq:
+  local_setup: false  
+
+minio:
+  local_setup: true  
+  volumeSize: 5Gi
+  image: quay.io/minio/minio:RELEASE.2025-04-08T15-41-24Z
+  image_mc: quay.io/minio/mc:RELEASE.2025-04-08T15-39-49Z
+
+env:
+  docstore_bucket: "uploads"
+  doc_upload_size_limit: "5242880"
+  default_cluster_domain: cluster.local
+  cors_allowed_origins: "https://{{ requiredEnv "APP_HOST" }}"
+  api_key_rate_limit: "60/minute"
+
+external_secrets:
+  app_env_existingSecret: plane-app-secret
+  live_env_existingSecret: plane-live-secret
+
+web:
+  image: {{ requiredEnv "IMAGE_WEB" }}
+  replicas: 1
+  cpuRequest: 200m
+  memoryRequest: 256Mi
+  cpuLimit: 400m
+  memoryLimit: 512Mi
+
+space:
+  image: {{ requiredEnv "IMAGE_SPACE" }}
+  replicas: 1
+  cpuRequest: 200m
+  memoryRequest: 256Mi
+  cpuLimit: 400m
+  memoryLimit: 512Mi
+
+admin:
+  image: {{ requiredEnv "IMAGE_ADMIN" }}
+  replicas: 1
+  cpuRequest: 200m
+  memoryRequest: 256Mi
+  cpuLimit: 400m
+  memoryLimit: 512Mi
+
+live:
+  image: {{ requiredEnv "IMAGE_LIVE" }}
+  replicas: 1
+  cpuRequest: 200m
+  memoryRequest: 256Mi
+  cpuLimit: 400m
+  memoryLimit: 512Mi
+
+# HPA-managed (manifests/hpa.yaml) — min 1 / max 2, scale @ 90% CPU.
+api:
+  image: {{ requiredEnv "IMAGE_API" }}
+  replicas: 1
+  cpuRequest: 750m
+  memoryRequest: 768Mi
+  cpuLimit: 1500m
+  memoryLimit: 1536Mi
+
+# HPA-managed (manifests/hpa.yaml) — min 1 / max 2, scale @ 90% CPU.
+worker:
+  image: {{ requiredEnv "IMAGE_API" }}
+  replicas: 1
+  cpuRequest: 600m
+  memoryRequest: 768Mi
+  cpuLimit: 1200m
+  memoryLimit: 1536Mi
+
+# Singleton — must never scale >1 (Celery beat).
+beatworker:
+  image: {{ requiredEnv "IMAGE_API" }}
+  replicas: 1
+  cpuRequest: 100m
+  memoryRequest: 128Mi
+  cpuLimit: 200m
+  memoryLimit: 256Mi

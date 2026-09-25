@@ -1,0 +1,12 @@
+ingress:
+  enabled: true
+  appHost: {{ requiredEnv "APP_HOST" | quote }}
+  ingressClass: {{ requiredEnv "INGRESS_CLASS" | quote }}
+  ingress_annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "5m"
+    cert-manager.io/cluster-issuer: {{ requiredEnv "CLUSTER_ISSUER" | quote }}
+
+ssl:
+  tls_secret_name: {{ requiredEnv "TLS_SECRET_NAME" | quote }}
+  createIssuer: false
+  generateCerts: false

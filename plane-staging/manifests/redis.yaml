@@ -1,0 +1,83 @@
+# Dedicated Redis. Password is read from an in-cluster Secret (not committed).
+# Storage class comes from .env (STORAGE_CLASS).
+apiVersion: v1
+kind: Service
+metadata:
+  name: plane-redis-master
+  namespace: ${NAMESPACE}
+spec:
+  clusterIP: None
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: 6379
+  selector:
+    app: plane-redis
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: plane-redis-master
+  namespace: ${NAMESPACE}
+spec:
+  serviceName: plane-redis-master
+  replicas: 1
+  selector:
+    matchLabels:
+      app: plane-redis
+  template:
+    metadata:
+      labels:
+        app: plane-redis
+        app.kubernetes.io/name: plane-redis
+        app.kubernetes.io/instance: plane-redis
+        app.kubernetes.io/part-of: plane
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        fsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: redis
+          image: redis:8.2-alpine
+          command: ["/bin/sh", "-c"]
+          args:
+            - redis-server --requirepass "$REDIS_PASSWORD" --appendonly yes --dir /data
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: plane-redis-secret
+                  key: redis-password
+          ports:
+            - containerPort: 6379
+          securityContext:
+            allowPrivilegeEscalation: false
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", "redis-cli -a \"$REDIS_PASSWORD\" ping"]
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            exec:
+              command: ["sh", "-c", "redis-cli -a \"$REDIS_PASSWORD\" ping"]
+            initialDelaySeconds: 15
+            periodSeconds: 20
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: ${STORAGE_CLASS}
+        resources:
+          requests:
+            storage: 1Gi
