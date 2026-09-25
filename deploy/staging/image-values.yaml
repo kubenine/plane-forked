@@ -1,30 +1,20 @@
 # Non-secret image overrides for the existing staging Helm release.
-# The deploy workflow fills the image registry and git SHA into the image fields below.
-# Keys match the community plane-ce chart (one full image reference per component).
-# worker and beatworker share the API image. Change these keys if the installed chart differs.
+# The deploy workflow substitutes the placeholders below before `helm upgrade`.
+# The chart renders each image as "<component>.image:<planeVersion>", so `image`
+# holds the repository only and `planeVersion` carries the tag shared by all components.
+# worker and beatworker reuse the API image.
+planeVersion: __IMAGE_TAG__
 web:
-  image: __IMAGE_REGISTRY__:web-__IMAGE_TAG__
-  pullPolicy: Always
+  image: __IMAGE_REPO_PREFIX__-web
 space:
-  image: __IMAGE_REGISTRY__:space-__IMAGE_TAG__
-  pullPolicy: Always
+  image: __IMAGE_REPO_PREFIX__-space
 admin:
-  image: __IMAGE_REGISTRY__:admin-__IMAGE_TAG__
-  pullPolicy: Always
+  image: __IMAGE_REPO_PREFIX__-admin
 live:
-  image: __IMAGE_REGISTRY__:live-__IMAGE_TAG__
-  pullPolicy: Always
+  image: __IMAGE_REPO_PREFIX__-live
 api:
-  image: __IMAGE_REGISTRY__:api-__IMAGE_TAG__
-  pullPolicy: Always
+  image: __IMAGE_REPO_PREFIX__-api
 worker:
-  image: __IMAGE_REGISTRY__:api-__IMAGE_TAG__
-  pullPolicy: Always
+  image: __IMAGE_REPO_PREFIX__-api
 beatworker:
-  image: __IMAGE_REGISTRY__:api-__IMAGE_TAG__
-  pullPolicy: Always
-# apps/proxy is built and pushed. The community chart routes through Ingress and does not
-# consume this image. Uncomment if the installed chart has a proxy value.
-# proxy:
-#   image: __IMAGE_REGISTRY__:proxy-__IMAGE_TAG__
-#   pullPolicy: Always
+  image: __IMAGE_REPO_PREFIX__-api
