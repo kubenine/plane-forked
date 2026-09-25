@@ -5,6 +5,10 @@ on:
     pull_request:
         branches:
             - "preview"
+            - "staging"
+    push:
+        branches:
+            - "staging"
         types:
             - "opened"
             - "synchronize"

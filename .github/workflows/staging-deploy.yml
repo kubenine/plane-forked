@@ -1,0 +1,202 @@
+name: Staging deploy
+
+# Manual deploy of the selected ref onto the Helm release already running in the cluster.
+# Does not run on pull requests, so fork PRs cannot read the kubeconfig or registry secrets.
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: staging-deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Build and helm upgrade
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    environment: staging
+    env:
+      STAGING_NAMESPACE: ${{ vars.STAGING_NAMESPACE }}
+      STAGING_HELM_RELEASE: ${{ vars.STAGING_HELM_RELEASE }}
+      STAGING_HELM_REPO_URL: ${{ vars.STAGING_HELM_REPO_URL }}
+      STAGING_HELM_CHART: ${{ vars.STAGING_HELM_CHART }}
+      STAGING_HELM_CHART_VERSION: ${{ vars.STAGING_HELM_CHART_VERSION }}
+      STAGING_IMAGE_REGISTRY: ${{ vars.STAGING_IMAGE_REGISTRY }}
+      STAGING_REGISTRY_TYPE: ${{ vars.STAGING_REGISTRY_TYPE }}
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      IMAGE_TAG: ${{ github.sha }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Install gitleaks
+        run: |
+          set -euo pipefail
+          version=8.28.0
+          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${version}/gitleaks_${version}_linux_x64.tar.gz" -o /tmp/gitleaks.tar.gz
+          tar -xzf /tmp/gitleaks.tar.gz -C /tmp gitleaks
+          sudo mv /tmp/gitleaks /usr/local/bin/gitleaks
+          gitleaks version
+
+      - name: Scan for secrets
+        run: gitleaks detect --source . --no-git --redact --verbose --exit-code 1
+
+      - name: Validate deploy settings
+        run: |
+          set -euo pipefail
+          missing=0
+          for name in STAGING_NAMESPACE STAGING_HELM_RELEASE STAGING_HELM_REPO_URL STAGING_HELM_CHART STAGING_IMAGE_REGISTRY STAGING_REGISTRY_TYPE; do
+            if [ -z "${!name}" ]; then
+              echo "Missing GitHub variable: $name"
+              missing=1
+            fi
+          done
+          case "$STAGING_REGISTRY_TYPE" in
+            docker|ecr) ;;
+            *)
+              echo "STAGING_REGISTRY_TYPE must be docker or ecr"
+              missing=1
+              ;;
+          esac
+          if [ "$STAGING_REGISTRY_TYPE" = "ecr" ] && [ -z "$AWS_REGION" ]; then
+            echo "Missing GitHub variable: AWS_REGION"
+            missing=1
+          fi
+          if [ "$missing" -ne 0 ]; then
+            exit 1
+          fi
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to the container registry
+        env:
+          REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
+          REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        run: |
+          set -euo pipefail
+          login_host="${STAGING_IMAGE_REGISTRY%%/*}"
+          case "$STAGING_REGISTRY_TYPE" in
+            docker)
+              if [ -z "$REGISTRY_USERNAME" ] || [ -z "$REGISTRY_PASSWORD" ]; then
+                echo "Missing secrets REGISTRY_USERNAME and REGISTRY_PASSWORD"
+                exit 1
+              fi
+              printf '%s' "$REGISTRY_PASSWORD" | docker login "$login_host" --username "$REGISTRY_USERNAME" --password-stdin
+              ;;
+            ecr)
+              if [ -z "$AWS_ACCESS_KEY_ID" ] || [ -z "$AWS_SECRET_ACCESS_KEY" ]; then
+                echo "Missing secrets AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY"
+                exit 1
+              fi
+              if ! command -v aws >/dev/null 2>&1; then
+                curl -sSfL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip
+                unzip -q /tmp/awscliv2.zip -d /tmp
+                sudo /tmp/aws/install --update
+              fi
+              export AWS_DEFAULT_REGION="$AWS_REGION"
+              aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$login_host"
+              ;;
+          esac
+
+      - name: Build and push images
+        run: |
+          set -euo pipefail
+          images=(
+            "web|.|./apps/web/Dockerfile.web"
+            "admin|.|./apps/admin/Dockerfile.admin"
+            "space|.|./apps/space/Dockerfile.space"
+            "live|.|./apps/live/Dockerfile.live"
+            "api|./apps/api|./apps/api/Dockerfile.api"
+            "proxy|./apps/proxy|./apps/proxy/Dockerfile.ce"
+          )
+          for spec in "${images[@]}"; do
+            IFS='|' read -r name context file <<<"$spec"
+            tag="${STAGING_IMAGE_REGISTRY}:${name}-${IMAGE_TAG}"
+            echo "Building ${tag}"
+            docker buildx build --push --file "$file" --tag "$tag" "$context"
+          done
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.16.4
+
+      - name: Install kubectl
+        uses: azure/setup-kubectl@v4
+        with:
+          version: v1.31.4
+
+      - name: Configure kubeconfig
+        env:
+          KUBE_CONFIG: ${{ secrets.KUBE_CONFIG }}
+        run: |
+          set -euo pipefail
+          if [ -z "$KUBE_CONFIG" ]; then
+            echo "Missing secret KUBE_CONFIG"
+            exit 1
+          fi
+          mkdir -p "$HOME/.kube"
+          printf '%s\n' "$KUBE_CONFIG" > "$HOME/.kube/config"
+          chmod 600 "$HOME/.kube/config"
+
+      - name: Render image values
+        run: |
+          set -euo pipefail
+          python3 -c 'import os; from pathlib import Path; t = Path("deploy/staging/image-values.yaml").read_text(); t = t.replace("__IMAGE_REGISTRY__", os.environ["STAGING_IMAGE_REGISTRY"]).replace("__IMAGE_TAG__", os.environ["IMAGE_TAG"]); Path("/tmp/image-values.yaml").write_text(t)'
+
+      - name: Helm upgrade
+        run: |
+          set -euo pipefail
+          if ! helm status "$STAGING_HELM_RELEASE" --namespace "$STAGING_NAMESPACE" >/dev/null 2>&1; then
+            echo "Helm release ${STAGING_HELM_RELEASE} was not found in namespace ${STAGING_NAMESPACE}."
+            echo "Refusing to create a new release from image overrides alone."
+            exit 1
+          fi
+          helm repo add deploy-repo "$STAGING_HELM_REPO_URL"
+          helm repo update deploy-repo
+          args=(
+            upgrade
+            --install
+            "$STAGING_HELM_RELEASE"
+            "deploy-repo/${STAGING_HELM_CHART}"
+            --namespace "$STAGING_NAMESPACE"
+            --reuse-values
+            --values /tmp/image-values.yaml
+            --wait
+            --wait-for-jobs
+            --timeout 10m
+            --atomic
+          )
+          if [ -n "$STAGING_HELM_CHART_VERSION" ]; then
+            args+=(--version "$STAGING_HELM_CHART_VERSION")
+          fi
+          helm "${args[@]}"
+
+      - name: Wait for rollouts
+        run: |
+          set -euo pipefail
+          mapfile -t deployments < <(
+            kubectl get deploy --namespace "$STAGING_NAMESPACE" -o json |
+              jq -r --arg release "$STAGING_HELM_RELEASE" '
+                .items[]
+                | select(.metadata.annotations["meta.helm.sh/release-name"] == $release)
+                | .metadata.name
+              '
+          )
+          if [ "${#deployments[@]}" -eq 0 ]; then
+            echo "No Deployments found for Helm release ${STAGING_HELM_RELEASE} in ${STAGING_NAMESPACE}"
+            exit 1
+          fi
+          for name in "${deployments[@]}"; do
+            echo "Waiting for deployment/${name}"
+            kubectl rollout status "deployment/${name}" --namespace "$STAGING_NAMESPACE" --timeout=10m
+          done

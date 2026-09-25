@@ -1,0 +1,30 @@
+# Non-secret image overrides for the existing staging Helm release.
+# The deploy workflow fills the image registry and git SHA into the image fields below.
+# Keys match the community plane-ce chart (one full image reference per component).
+# worker and beatworker share the API image. Change these keys if the installed chart differs.
+web:
+  image: __IMAGE_REGISTRY__:web-__IMAGE_TAG__
+  pullPolicy: Always
+space:
+  image: __IMAGE_REGISTRY__:space-__IMAGE_TAG__
+  pullPolicy: Always
+admin:
+  image: __IMAGE_REGISTRY__:admin-__IMAGE_TAG__
+  pullPolicy: Always
+live:
+  image: __IMAGE_REGISTRY__:live-__IMAGE_TAG__
+  pullPolicy: Always
+api:
+  image: __IMAGE_REGISTRY__:api-__IMAGE_TAG__
+  pullPolicy: Always
+worker:
+  image: __IMAGE_REGISTRY__:api-__IMAGE_TAG__
+  pullPolicy: Always
+beatworker:
+  image: __IMAGE_REGISTRY__:api-__IMAGE_TAG__
+  pullPolicy: Always
+# apps/proxy is built and pushed. The community chart routes through Ingress and does not
+# consume this image. Uncomment if the installed chart has a proxy value.
+# proxy:
+#   image: __IMAGE_REGISTRY__:proxy-__IMAGE_TAG__
+#   pullPolicy: Always
