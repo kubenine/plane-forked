@@ -16,7 +16,7 @@ permissions:
 jobs:
   deploy:
     name: Build and helm upgrade
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.STAGING_RUNNER_LABEL }}
     timeout-minutes: 180
     environment: staging
     env:
@@ -25,9 +25,8 @@ jobs:
       STAGING_HELM_REPO_URL: ${{ vars.STAGING_HELM_REPO_URL }}
       STAGING_HELM_CHART: ${{ vars.STAGING_HELM_CHART }}
       STAGING_HELM_CHART_VERSION: ${{ vars.STAGING_HELM_CHART_VERSION }}
-      STAGING_IMAGE_REGISTRY: ${{ vars.STAGING_IMAGE_REGISTRY }}
-      STAGING_REGISTRY_TYPE: ${{ vars.STAGING_REGISTRY_TYPE }}
-      AWS_REGION: ${{ vars.AWS_REGION }}
+      STAGING_IMAGE_NAMESPACE: ${{ vars.STAGING_IMAGE_NAMESPACE }}
+      BUILD_PLATFORM: ${{ vars.BUILD_PLATFORM }}
       IMAGE_TAG: ${{ github.sha }}
     steps:
       - name: Checkout repository
@@ -51,23 +50,12 @@ jobs:
         run: |
           set -euo pipefail
           missing=0
-          for name in STAGING_NAMESPACE STAGING_HELM_RELEASE STAGING_HELM_REPO_URL STAGING_HELM_CHART STAGING_IMAGE_REGISTRY STAGING_REGISTRY_TYPE; do
+          for name in STAGING_NAMESPACE STAGING_HELM_RELEASE STAGING_HELM_REPO_URL STAGING_HELM_CHART STAGING_IMAGE_NAMESPACE BUILD_PLATFORM; do
             if [ -z "${!name}" ]; then
               echo "Missing GitHub variable: $name"
               missing=1
             fi
           done
-          case "$STAGING_REGISTRY_TYPE" in
-            docker|ecr) ;;
-            *)
-              echo "STAGING_REGISTRY_TYPE must be docker or ecr"
-              missing=1
-              ;;
-          esac
-          if [ "$STAGING_REGISTRY_TYPE" = "ecr" ] && [ -z "$AWS_REGION" ]; then
-            echo "Missing GitHub variable: AWS_REGION"
-            missing=1
-          fi
           if [ "$missing" -ne 0 ]; then
             exit 1
           fi
@@ -75,37 +63,11 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
-      - name: Log in to the container registry
-        env:
-          REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
-          REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-        run: |
-          set -euo pipefail
-          login_host="${STAGING_IMAGE_REGISTRY%%/*}"
-          case "$STAGING_REGISTRY_TYPE" in
-            docker)
-              if [ -z "$REGISTRY_USERNAME" ] || [ -z "$REGISTRY_PASSWORD" ]; then
-                echo "Missing secrets REGISTRY_USERNAME and REGISTRY_PASSWORD"
-                exit 1
-              fi
-              printf '%s' "$REGISTRY_PASSWORD" | docker login "$login_host" --username "$REGISTRY_USERNAME" --password-stdin
-              ;;
-            ecr)
-              if [ -z "$AWS_ACCESS_KEY_ID" ] || [ -z "$AWS_SECRET_ACCESS_KEY" ]; then
-                echo "Missing secrets AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY"
-                exit 1
-              fi
-              if ! command -v aws >/dev/null 2>&1; then
-                curl -sSfL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip
-                unzip -q /tmp/awscliv2.zip -d /tmp
-                sudo /tmp/aws/install --update
-              fi
-              export AWS_DEFAULT_REGION="$AWS_REGION"
-              aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$login_host"
-              ;;
-          esac
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Build and push images
         run: |
@@ -116,13 +78,12 @@ jobs:
             "space|.|./apps/space/Dockerfile.space"
             "live|.|./apps/live/Dockerfile.live"
             "api|./apps/api|./apps/api/Dockerfile.api"
-            "proxy|./apps/proxy|./apps/proxy/Dockerfile.ce"
           )
           for spec in "${images[@]}"; do
             IFS='|' read -r name context file <<<"$spec"
-            tag="${STAGING_IMAGE_REGISTRY}:${name}-${IMAGE_TAG}"
+            tag="${STAGING_IMAGE_NAMESPACE}/plane-${name}:${IMAGE_TAG}"
             echo "Building ${tag}"
-            docker buildx build --push --file "$file" --tag "$tag" "$context"
+            docker buildx build --push --platform "$BUILD_PLATFORM" --file "$file" --tag "$tag" "$context"
           done
 
       - name: Install Helm
@@ -135,23 +96,30 @@ jobs:
         with:
           version: v1.31.4
 
-      - name: Configure kubeconfig
+      - name: Configure kubeconfig (in-cluster, scoped SA token)
         env:
-          KUBE_CONFIG: ${{ secrets.KUBE_CONFIG }}
+          SA_TOKEN: ${{ secrets.STAGING_DEPLOYER_TOKEN }}
         run: |
           set -euo pipefail
-          if [ -z "$KUBE_CONFIG" ]; then
-            echo "Missing secret KUBE_CONFIG"
+          if [ -z "$SA_TOKEN" ]; then
+            echo "Missing secret STAGING_DEPLOYER_TOKEN"
             exit 1
           fi
-          mkdir -p "$HOME/.kube"
-          printf '%s\n' "$KUBE_CONFIG" > "$HOME/.kube/config"
-          chmod 600 "$HOME/.kube/config"
+          kubectl config set-cluster in-cluster \
+            --server="https://${KUBERNETES_SERVICE_HOST}:${KUBERNETES_SERVICE_PORT}" \
+            --certificate-authority=/var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+          kubectl config set-credentials staging-deployer --token="${SA_TOKEN}"
+          kubectl config set-context staging \
+            --cluster=in-cluster \
+            --user=staging-deployer \
+            --namespace="$STAGING_NAMESPACE"
+          kubectl config use-context staging
+          kubectl auth whoami
 
       - name: Render image values
         run: |
           set -euo pipefail
-          python3 -c 'import os; from pathlib import Path; t = Path("deploy/staging/image-values.yaml").read_text(); t = t.replace("__IMAGE_REGISTRY__", os.environ["STAGING_IMAGE_REGISTRY"]).replace("__IMAGE_TAG__", os.environ["IMAGE_TAG"]); Path("/tmp/image-values.yaml").write_text(t)'
+          python3 -c 'import os; from pathlib import Path; t = Path("deploy/staging/image-values.yaml").read_text(); t = t.replace("__IMAGE_REPO_PREFIX__", os.environ["STAGING_IMAGE_NAMESPACE"] + "/plane").replace("__IMAGE_TAG__", os.environ["IMAGE_TAG"]); Path("/tmp/image-values.yaml").write_text(t)'
 
       - name: Helm upgrade
         run: |

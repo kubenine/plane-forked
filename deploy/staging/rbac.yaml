@@ -1,0 +1,35 @@
+# One-time setup of the CI deployer identity for the staging namespace.
+# Replace __STAGING_NAMESPACE__ and apply as a cluster admin:
+#   sed 's/__STAGING_NAMESPACE__/<namespace>/g' deploy/staging/rbac.yaml | kubectl apply -f -
+# Then copy the token into the STAGING_DEPLOYER_TOKEN environment secret:
+#   kubectl -n <namespace> get secret staging-deployer-token -o jsonpath='{.data.token}' | base64 -d
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: staging-deployer
+  namespace: __STAGING_NAMESPACE__
+---
+# Binds the built-in `edit` ClusterRole to the deployer, scoped to this namespace only.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: staging-deployer-binding
+  namespace: __STAGING_NAMESPACE__
+subjects:
+  - kind: ServiceAccount
+    name: staging-deployer
+    namespace: __STAGING_NAMESPACE__
+roleRef:
+  kind: ClusterRole
+  name: edit
+  apiGroup: rbac.authorization.k8s.io
+---
+# Long-lived token for CI (kubectl create token is short-lived).
+apiVersion: v1
+kind: Secret
+metadata:
+  name: staging-deployer-token
+  namespace: __STAGING_NAMESPACE__
+  annotations:
+    kubernetes.io/service-account.name: staging-deployer
+type: kubernetes.io/service-account-token
