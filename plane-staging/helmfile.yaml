@@ -1,0 +1,65 @@
+
+
+helmDefaults:
+  kubeContext: {{ requiredEnv "KUBE_CONTEXT" | quote }}
+  wait: true
+  timeout: 1200
+  createNamespace: false
+
+repositories:
+  - name: plane
+    url: https://helm.plane.so
+  - name: cnpg
+    url: https://cloudnative-pg.github.io/charts
+
+releases:
+  - name: plane-db-staging
+    namespace: {{ requiredEnv "NAMESPACE" | quote }}
+    chart: cnpg/cluster
+    version: 0.8.1
+    values:
+      - values/plane-db.yaml.gotmpl
+    hooks:
+      - events: ["presync"]
+        command: "bash"
+        args:
+          - -lc
+          - envsubst '${NAMESPACE}' < manifests/namespace.yaml | kubectl --context "$KUBE_CONTEXT" apply -f -
+      - events: ["postsync"]
+        command: "kubectl"
+        args: ["--context", "{{ requiredEnv \"KUBE_CONTEXT\" }}", "wait", "--for=condition=Ready", "cluster/plane-db-staging", "-n", "{{ requiredEnv \"NAMESPACE\" }}", "--timeout", "600s"]
+
+  - name: plane
+    namespace: {{ requiredEnv "NAMESPACE" | quote }}
+    chart: plane/plane-ce
+    version: 1.6.2
+    needs:
+      - {{ requiredEnv "NAMESPACE" }}/plane-db-staging
+    values:
+      - values/plane-ce-app.yaml.gotmpl
+      - values/plane-ce-ingress.yaml.gotmpl
+    strategicMergePatches:
+      - patches/admin-securitycontext.yaml.gotmpl
+      - patches/web-securitycontext.yaml.gotmpl
+      - patches/space-securitycontext.yaml.gotmpl
+      - patches/api-securitycontext.yaml.gotmpl
+      - patches/worker-securitycontext.yaml.gotmpl
+      - patches/beat-worker-securitycontext.yaml.gotmpl
+      - patches/live-securitycontext.yaml.gotmpl
+      - patches/minio-resources.yaml.gotmpl
+    hooks:
+      - events: ["presync"]
+        command: "bash"
+        args:
+          - -lc
+          - envsubst '${NAMESPACE}' < manifests/namespace.yaml | kubectl --context "$KUBE_CONTEXT" apply -f -
+      - events: ["presync"]
+        command: "bash"
+        args:
+          - -lc
+          - envsubst '${NAMESPACE} ${STORAGE_CLASS}' < manifests/redis.yaml | kubectl --context "$KUBE_CONTEXT" apply -f -
+      - events: ["postsync"]
+        command: "bash"
+        args:
+          - -lc
+          - envsubst '${NAMESPACE}' < manifests/hpa.yaml | kubectl --context "$KUBE_CONTEXT" apply -f -

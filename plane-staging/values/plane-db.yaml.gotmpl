@@ -1,0 +1,41 @@
+
+
+fullnameOverride: plane-db-staging
+
+type: postgresql
+version:
+  postgresql: "17"
+
+mode: standalone
+
+cluster:
+  instances: 1
+  imageName: ghcr.io/cloudnative-pg/postgresql:17.11-minimal-trixie
+  storage:
+    storageClass: {{ requiredEnv "STORAGE_CLASS" | quote }}
+    size: 5Gi
+  superuserSecret: cnpg-superuser-secret
+  enableSuperuserAccess: false
+  resources:
+    requests:
+      cpu: "450m"
+      memory: "768Mi"
+  affinity: null
+  monitoring:
+    enabled: false
+    podMonitor:
+      enabled: false
+    prometheusRule:
+      enabled: false
+    instrumentation:
+      logicalReplication: false
+      pgStatStatements: false
+  postgresql:
+    parameters:
+      max_connections: "100"
+  initdb:
+    database: plane
+    owner: plane
+
+backups:
+  enabled: false

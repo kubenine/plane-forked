@@ -1,0 +1,31 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: plane-beat-worker-wl
+  namespace: {{ requiredEnv "NAMESPACE" }}
+spec:
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/part-of: plane
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: plane-beat-worker
+          securityContext:
+            allowPrivilegeEscalation: false
+          # celery beat is a scheduler, not a worker — no `inspect ping`/broker
+          # round-trip available (that's a worker-pool RPC beat doesn't answer). Fall
+          # back to a plain process-alive check; catches a crashed/hung beat process,
+          # not scheduling correctness.
+          livenessProbe:
+            exec:
+              command: ["sh", "-c", "pgrep -f 'celery.*beat'"]
+            initialDelaySeconds: 30
+            periodSeconds: 60
+            timeoutSeconds: 10
+            failureThreshold: 3

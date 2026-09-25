@@ -1,0 +1,45 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: plane-worker-wl
+  namespace: {{ requiredEnv "NAMESPACE" }}
+spec:
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/part-of: plane
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: plane-worker
+          securityContext:
+            allowPrivilegeEscalation: false
+          # No HTTP endpoint (apps/api/bin/docker-entrypoint-worker.sh just runs
+          # `celery -A plane worker`) — `celery inspect ping` round-trips through the
+          # broker (Redis) and back, proving both the worker process and its broker
+          # connection are alive, not just that the process exists.
+          #
+          # `-d celery@$(hostname)` targets only THIS pod's worker — worker.replicas can
+          # be >1 (HPA, manifests/hpa.yaml), and an unscoped `celery inspect ping`
+          # broadcasts over the shared Redis pidbox to every worker in the deployment,
+          # not just the local one. Without `-d`, a probe in a pod whose own worker had
+          # died could still get a pong from a *different* pod's worker and report
+          # false-healthy. exec probes don't go through a shell, so $(hostname) needs
+          # `sh -c` to actually expand.
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", "celery -A plane inspect ping -d celery@$(hostname)"]
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            exec:
+              command: ["sh", "-c", "celery -A plane inspect ping -d celery@$(hostname)"]
+            initialDelaySeconds: 30
+            periodSeconds: 60
+            timeoutSeconds: 10
+            failureThreshold: 3
